@@ -8,6 +8,15 @@ with Slack alerting and full CI (ruff + bandit + pytest + dbt test).
 
 **Status: Day 1 of 8** — see `LEARNING_LOG.md` for build history.
 
+## Running continuously (e.g. on a home server)
+
+```
+cp .env.example .env   # fill in real Snowflake credentials
+docker compose up -d ingestion
+```
+
+This runs `ingestion/scheduler.py` — an asyncio loop polling the NYC API every `POLL_INTERVAL_SECONDS` (default 60) — as a long-lived container with `restart: unless-stopped`. The `api` and `dashboard` services in `docker-compose.yml` are commented out until those days are built; uncomment as they land. If deploying alongside other services on the same host, note the api service is mapped to host port 8010, not 8000, to avoid colliding with anything already using 8000.
+
 ## Day 1 setup
 
 1. `cp .env.example .env` and fill in your Snowflake account details.

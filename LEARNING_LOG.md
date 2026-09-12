@@ -34,3 +34,17 @@
 
 **Concept tests written:** `tests/learning/test_pyspark_window_concepts.py` — 4 tests, all run against a real local Spark session (not mocked).
 
+## Continuous deployment (Docker + asyncio scheduler) — 2026-09-12
+**Component built:** `ingestion/scheduler.py` (asyncio polling loop pulled forward from the Day 3 plan), `Dockerfile`, `docker-compose.yml` — so ingestion can run continuously on always-on hardware instead of one-shot on a laptop.
+
+**What I learned:**
+- `asyncio.to_thread(sync_func, *args)` runs a blocking synchronous function (the Day 1 ingestion cycle, built on sync `requests`/`snowflake-connector` calls) in a worker thread so `await`ing it doesn't freeze the event loop — necessary the moment a second concurrent poller gets added later.
+- A cron job re-launching `run_once.py` every 60 seconds pays for a fresh interpreter and Snowflake connection each time; a single long-running asyncio loop avoids that and matches Docker's expectation of one persistent foreground process per container (`restart: unless-stopped` supervises a process, not a sequence of short jobs).
+- The `try/except` in `poll_forever` wraps only the ingestion cycle call, not the sleep — proved with a test that injects a `RuntimeError` and confirms the loop still reaches `asyncio.sleep()` afterward rather than crashing the whole container on one bad cycle.
+- Testing an "infinite" loop: mock `asyncio.sleep` to raise a sentinel exception on its first call, so the loop runs exactly one real iteration and then exits via that exception — lets you assert on loop *behavior* without an actual infinite loop or real waiting in the test suite.
+
+**Why it matters for interviews:** shows you can reason about what changes (and what doesn't) when moving code from "runs once locally" to "runs forever in production" — connection lifecycle, failure isolation per cycle, and how to make an intentionally-infinite loop testable.
+
+**Concept tests written:** `tests/learning/test_scheduler_concepts.py` — 2 tests, mocking the cycle function and sleep to prove call order and failure isolation without a real 60-second wait.
+
+
