@@ -1,0 +1,4 @@
+line-length = 100
+
+[lint.per-file-ignores]
+"tests/learning/test_pyspark_window_concepts.py" = ["E402"]
