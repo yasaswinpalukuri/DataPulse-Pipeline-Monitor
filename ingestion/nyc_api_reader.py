@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 import requests
 
-NYC_API_BASE_URL = "https://data.cityofnewyork.us/resource/h9gi-nx95.json"
+NYC_API_BASE_URL = "https://data.cityofnewyork.us/resource/4b4i-vvec.json"  # 2023 Yellow Taxi Trip Data -- h9gi-nx95 was actually Motor Vehicle Collisions, wrong dataset
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_PAGE_SIZE = 1000
 
