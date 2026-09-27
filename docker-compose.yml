@@ -1,12 +1,12 @@
 services:
   ingestion:
     build: .
-    container_name: datapulse-ingestion
-    restart: unless-stopped
     env_file: .env
-    # No exposed ports -- this service only writes to Snowflake, it
-    # doesn't serve anything. api/dashboard get their own service
-    # blocks (and their own ports, offset to avoid colliding with
+    # One-shot batch job, started by cron via `docker compose run --rm
+    # ingestion` (see deploy/crontab). No restart policy and no fixed
+    # container_name: each run is a fresh, disposable container. No exposed
+    # ports -- this service only writes to Snowflake. api/dashboard get
+    # their own service blocks (and their own ports, offset to avoid colliding with
     # Groot's existing agent_service on 8000) once those are built.
 
   # api:

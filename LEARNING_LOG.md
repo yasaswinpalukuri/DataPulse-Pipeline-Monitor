@@ -48,3 +48,19 @@
 **Concept tests written:** `tests/learning/test_scheduler_concepts.py` — 2 tests, mocking the cycle function and sleep to prove call order and failure isolation without a real 60-second wait.
 
 
+## Idempotent daily batch + cron — 2026-09-27
+**Component built:** Replaced the 60-second polling loop with a cron-triggered, date-parameterized daily batch that overwrites one day's partition in Snowflake raw. Removed `ingestion/scheduler.py`.
+
+**Why the scheduling decision changed:** On 2026-09-12 I argued against cron because the cadence was 60 seconds (a fresh interpreter + connection every minute, and Docker expects a long-running process). The source turned out to be a *historical* daily dataset, so the cadence became once a day. At that cadence the trade-off flips: a supervised always-on process idles 99.9% of the time, while cron + a one-shot `docker compose run --rm` container is simpler and standard. Same reasoning, different input -> different answer.
+
+**What I learned:**
+- The old reader always started at offset 0, so every run re-fetched and re-inserted the same first 1,000 rows. "Deterministic IDs" alone don't make reloads idempotent -- the *load* has to use them.
+- Content-hash key + MERGE isn't enough: a corrected source row gets a new hash, so MERGE keeps the stale row too. Partition overwrite (delete the logical day, re-insert) inside one transaction is idempotent for identical reloads *and* correct for corrections.
+- Hashing only vendor|pickup|fare collides on distinct trips; the id now hashes every source column in a fixed order.
+- Socrata offset paging needs `$order=:id` -- without a stable order, pages can skip or repeat rows.
+- Logical date vs run date: the batch processes an explicit `--date`, defaulting to the same calendar day in 2023, so any day can be rerun or backfilled with one command.
+- `write_pandas` = PUT to an internal stage + COPY INTO: Snowflake's bulk path, the same "stage then COPY" idea as Redshift COPY FROM S3.
+- Snowflake DDL auto-commits, so the temp-table CREATE must run before BEGIN.
+- No CLUSTER BY: a clustering key enables Automatic Clustering (billed credits) with no benefit at this volume; daily inserts already group micro-partitions by date.
+
+**Concept tests written:** `tests/learning/test_nyc_api_concepts.py` (rewritten, 7 tests), `tests/learning/test_idempotent_load_concepts.py` (7 tests: logical dates, nullable Int64, transaction ordering, rollback on failure, empty-batch guard).

@@ -1,0 +1,8 @@
+# DataPulse daily batch (installed on the Groot home server).
+# Runs at 21:00 server-local time (Groot should be on America/Toronto --
+# check with `timedatectl`); each run loads the same calendar
+# day from 2023 (see ingestion/logical_date.py).
+#
+# Install:  (crontab -l; cat deploy/crontab) | crontab -
+# Paths below assume the repo is at /home/groot/projects/DataPulse-Pipeline-Monitor.
+0 21 * * * /home/groot/projects/DataPulse-Pipeline-Monitor/scripts/run_daily.sh

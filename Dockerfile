@@ -8,4 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ingestion/ ingestion/
 COPY warehouse/ warehouse/
 
-CMD ["python", "-m", "ingestion.scheduler"]
+# One-shot batch: run one logical day and exit. Scheduling is cron's job
+# (see deploy/crontab), not a loop inside the container.
+ENTRYPOINT ["python", "-m", "ingestion.run_once"]

@@ -1,5 +1,7 @@
-snowflake-connector-python==3.12.3
+snowflake-connector-python[pandas]==3.12.3
+pandas==2.2.3
 requests==2.32.3
+tzdata==2024.2
 python-dotenv==1.0.1
 pytest==8.3.3
 ruff==0.7.1

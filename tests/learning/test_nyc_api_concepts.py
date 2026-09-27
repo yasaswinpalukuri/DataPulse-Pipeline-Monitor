@@ -1,66 +1,75 @@
-"""Day 1 concept tests: NYC Open Data (Socrata) API ingestion patterns."""
+"""Concept tests: NYC Open Data (Socrata) ingestion by logical date."""
 
-import hashlib
+from datetime import date
 
-from ingestion.nyc_api_reader import _make_trip_id, _map_record
+from ingestion.nyc_api_reader import (
+    SOURCE_COLUMNS,
+    build_day_params,
+    make_trip_id,
+    map_record,
+)
 
-
-def test_pagination_is_offset_based_not_cursor_based():
-    """
-    I learned: the Socrata SODA API paginates via $limit/$offset query
-    params, not an opaque cursor/token. This means pagination is not
-    airtight against concurrent writes to the underlying dataset --
-    a row could theoretically be skipped or duplicated across two page
-    requests if the dataset changes mid-pagination. Worth stating this
-    limitation explicitly rather than assuming pagination is safe.
-    """
-    page_1_params = {"$limit": 1000, "$offset": 0}
-    page_2_params = {"$limit": 1000, "$offset": 1000}
-    assert page_2_params["$offset"] == page_1_params["$offset"] + page_1_params["$limit"]
-
-
-def test_trip_id_is_deterministic_not_random():
-    """
-    I learned: the source dataset has no stable trip_id, so I derive
-    one via hashing stable fields (vendor_id + pickup_datetime +
-    fare_amount). Deterministic IDs mean re-ingesting the same
-    underlying row twice (e.g. after a crash/restart) produces the
-    SAME id both times -- which is what makes a uniqueness check on
-    trip_id meaningful. A random UUID per read would make every
-    "duplicate" look unique and the check would never fire.
-    """
-    id_first_read = _make_trip_id("VTS", "2024-01-01T08:00:00", "12.50")
-    id_second_read = _make_trip_id("VTS", "2024-01-01T08:00:00", "12.50")
-    assert id_first_read == id_second_read
-
-    different_fare = _make_trip_id("VTS", "2024-01-01T08:00:00", "15.00")
-    assert different_fare != id_first_read
+SAMPLE = {  # a real record from the 4b4i-vvec API (2023-01-01)
+    "vendorid": "2", "tpep_pickup_datetime": "2023-01-01T00:32:10.000",
+    "tpep_dropoff_datetime": "2023-01-01T00:40:36.000", "passenger_count": "1.0",
+    "trip_distance": "0.97", "ratecodeid": "1.0", "store_and_fwd_flag": "N",
+    "pulocationid": "161", "dolocationid": "141", "payment_type": "2",
+    "fare_amount": "9.3", "extra": "1.0", "mta_tax": "0.5", "tip_amount": "0.0",
+    "tolls_amount": "0.0", "improvement_surcharge": "1.0", "total_amount": "14.3",
+    "congestion_surcharge": "2.5", "airport_fee": "0.0",
+}
 
 
-def test_trip_id_matches_manual_hash_computation():
-    """
-    I learned: the trip_id hash is just sha256 of the pipe-joined
-    fields, truncated to 32 hex chars. Documenting the exact
-    construction so it's not a black box.
-    """
-    raw = "VTS|2024-01-01T08:00:00|12.50"
-    expected = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
-    assert _make_trip_id("VTS", "2024-01-01T08:00:00", "12.50") == expected
+def test_trip_id_is_deterministic():
+    """I learned: the same source record must always hash to the same id --
+    that is what makes a uniqueness check on trip_id mean anything."""
+    assert make_trip_id(SAMPLE) == make_trip_id(dict(SAMPLE))
 
 
-def test_map_record_skips_rows_missing_identity_fields():
-    """
-    I learned: rows without vendor_id or pickup_datetime can't get a
-    valid trip_id (both feed the hash), so _map_record returns None
-    for them rather than inserting a row with a garbage/incomplete
-    identity. The caller counts skips instead of silently losing rows.
-    """
-    incomplete_record = {"fare_amount": "10.00"}  # missing vendor_id, pickup_datetime
-    assert _map_record(incomplete_record, run_id="test-run") is None
+def test_old_three_field_hash_would_collide_on_distinct_trips():
+    """I learned: hashing only vendor|pickup|fare collides on genuinely
+    different trips (same vendor, same second, flat fare, different
+    destination). Hashing every column keeps them distinct."""
+    other_trip = {**SAMPLE, "dolocationid": "132", "total_amount": "20.1"}
+    old_key = lambda r: (r["vendorid"], r["tpep_pickup_datetime"], r["fare_amount"])  # noqa: E731
+    assert old_key(SAMPLE) == old_key(other_trip)            # old scheme: collision
+    assert make_trip_id(SAMPLE) != make_trip_id(other_trip)  # new scheme: distinct
 
-    complete_record = {
-        "vendor_id": "VTS",
-        "pickup_datetime": "2024-01-01T08:00:00",
-        "fare_amount": "10.00",
-    }
-    assert _map_record(complete_record, run_id="test-run") is not None
+
+def test_every_source_column_affects_the_hash():
+    """I learned: the hash contract is 'all columns in SOURCE_COLUMNS order'.
+    Changing any single field must change the id."""
+    base = make_trip_id(SAMPLE)
+    for col in SOURCE_COLUMNS:
+        assert make_trip_id({**SAMPLE, col: "changed"}) != base, col
+
+
+def test_map_record_parses_decimal_strings_to_numbers():
+    """I learned: Socrata sends integer codes as '1.0'. Parse at ingestion so
+    quality checks compare numbers, not strings ('10' < '9' as strings)."""
+    row = map_record(SAMPLE, run_id="r", ingested_at="t")
+    assert row["passenger_count"] == 1 and isinstance(row["passenger_count"], int)
+    assert row["pu_location_id"] == 161
+    assert row["fare_amount"] == 9.3
+
+
+def test_unparseable_numbers_become_none_not_crashes():
+    row = map_record({**SAMPLE, "fare_amount": "n/a"}, run_id="r", ingested_at="t")
+    assert row["fare_amount"] is None
+
+
+def test_map_record_skips_rows_without_identity():
+    """I learned: no vendor or no pickup time -> no meaningful row and no
+    partition to put it in; skip and count it rather than load garbage."""
+    assert map_record({"fare_amount": "10"}, run_id="r", ingested_at="t") is None
+
+
+def test_day_query_is_windowed_and_stably_ordered():
+    """I learned: offset paging is only safe with a stable $order. Without it
+    Socrata may return rows in a different order per request, so pages can
+    skip or repeat rows. :id is Socrata's stable internal row id."""
+    params = build_day_params(date(2023, 3, 31), limit=10_000, offset=20_000)
+    assert params["$order"] == ":id"
+    assert "'2023-03-31T00:00:00'" in params["$where"]
+    assert "'2023-04-01T00:00:00'" in params["$where"]  # half-open window crosses month
+    assert params["$offset"] == 20_000

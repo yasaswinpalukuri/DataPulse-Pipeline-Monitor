@@ -1,59 +1,139 @@
 """
-Loads mapped rows into the Snowflake raw layer.
+Loads one logical day into Snowflake raw with PARTITION OVERWRITE semantics.
 
-Uses cur.executemany() for batch inserts rather than looping
-cur.execute() per row. executemany sends the batch as one request;
-row-by-row execute() would mean one network round-trip per row -- for
-a 1000-row NYC API page, that's 1 request vs. 1000. This is the same
-N+1 problem people usually only think about for ORMs, but it applies
-just as much to raw DB-API cursors.
+Why partition overwrite (delete the day, re-insert it) instead of MERGE:
+trip_id is a content hash, so a corrected source row gets a NEW id. MERGE on
+trip_id would insert the corrected row and keep the stale one. Deleting the
+whole logical day and re-inserting it makes any rerun of a date converge to
+exactly what the source says now -- idempotent for identical reloads AND
+correct for corrections.
+
+Why the delete and insert share one transaction: if the insert failed after
+a committed delete, that day would silently vanish from raw. BEGIN ... COMMIT
+(ROLLBACK on error) makes the swap all-or-nothing.
+
+Why write_pandas into a temp table first: write_pandas uploads the DataFrame
+as compressed Parquet to a Snowflake internal stage (PUT) and runs COPY INTO.
+That's Snowflake's bulk-load path -- the same "stage a file, then COPY"
+pattern as Redshift COPY FROM S3 -- instead of building a giant multi-row
+INSERT on the client. The temp table is session-scoped and disappears when
+the connection closes, so there's nothing to clean up.
+
+Why an explicit temp-table DDL rather than auto_create_table: schema
+inference from a DataFrame guesses types (an all-null column has no type at
+all). The load path should never guess.
 """
+
+from datetime import date
+
+import pandas as pd
+from snowflake.connector.pandas_tools import write_pandas
 
 from warehouse.snowflake_client import get_connection
 
-INSERT_TAXI_TRIPS_SQL = """
-    INSERT INTO datapulse.raw.taxi_trips
-        (trip_id, vendor_id, pickup_datetime, dropoff_datetime,
-         passenger_count, trip_distance, fare_amount, tip_amount,
-         payment_type, ingested_at, run_id)
-    VALUES (%(trip_id)s, %(vendor_id)s, %(pickup_datetime)s, %(dropoff_datetime)s,
-            %(passenger_count)s, %(trip_distance)s, %(fare_amount)s, %(tip_amount)s,
-            %(payment_type)s, %(ingested_at)s, %(run_id)s)
-"""
+STAGE_TABLE = "TAXI_TRIPS_STAGE"
+
+# Column order for the staged DataFrame. Timestamps stay strings here and are
+# converted explicitly in SQL (TRY_TO_TIMESTAMP_NTZ) below.
+STAGE_COLUMNS = {
+    "trip_id": "VARCHAR",
+    "vendor_id": "INTEGER",
+    "pickup_datetime": "VARCHAR",
+    "dropoff_datetime": "VARCHAR",
+    "passenger_count": "INTEGER",
+    "trip_distance": "FLOAT",
+    "ratecode_id": "INTEGER",
+    "store_and_fwd_flag": "VARCHAR",
+    "pu_location_id": "INTEGER",
+    "do_location_id": "INTEGER",
+    "payment_type": "INTEGER",
+    "fare_amount": "FLOAT",
+    "extra": "FLOAT",
+    "mta_tax": "FLOAT",
+    "tip_amount": "FLOAT",
+    "tolls_amount": "FLOAT",
+    "improvement_surcharge": "FLOAT",
+    "total_amount": "FLOAT",
+    "congestion_surcharge": "FLOAT",
+    "airport_fee": "FLOAT",
+    "ingested_at": "VARCHAR",
+    "run_id": "VARCHAR",
+}
+
+CREATE_STAGE_SQL = (
+    f"CREATE OR REPLACE TEMPORARY TABLE {STAGE_TABLE} ("
+    + ", ".join(f"{col} {typ}" for col, typ in STAGE_COLUMNS.items())
+    + ")"
+)
+
+DELETE_DAY_SQL = "DELETE FROM datapulse.raw.taxi_trips WHERE pickup_date = %s"
+
+_TIMESTAMP_COLS = {"pickup_datetime", "dropoff_datetime", "ingested_at"}
+INSERT_FROM_STAGE_SQL = (
+    "INSERT INTO datapulse.raw.taxi_trips ("
+    + ", ".join(STAGE_COLUMNS)
+    + ", pickup_date) SELECT "
+    + ", ".join(
+        f"TRY_TO_TIMESTAMP_NTZ({c})" if c in _TIMESTAMP_COLS else c for c in STAGE_COLUMNS
+    )
+    + f", TO_DATE(TRY_TO_TIMESTAMP_NTZ(pickup_datetime)) FROM {STAGE_TABLE}"
+)
 
 INSERT_PIPELINE_RUN_SQL = """
     INSERT INTO datapulse.raw.pipeline_runs
-        (run_id, started_at, completed_at, status, source,
-         rows_ingested, rows_failed, duration_seconds)
-    VALUES (%(run_id)s, %(started_at)s, %(completed_at)s, %(status)s, %(source)s,
-            %(rows_ingested)s, %(rows_failed)s, %(duration_seconds)s)
+        (run_id, logical_date, started_at, completed_at, status, source,
+         rows_ingested, rows_failed, duration_seconds, error_message)
+    VALUES (%(run_id)s, %(logical_date)s, %(started_at)s, %(completed_at)s, %(status)s,
+            %(source)s, %(rows_ingested)s, %(rows_failed)s, %(duration_seconds)s,
+            %(error_message)s)
 """
 
 
-def load_taxi_trips(rows: list[dict]) -> int:
-    """Batch-insert mapped taxi trip rows. Returns count inserted.
+def rows_to_stage_frame(rows: list[dict]) -> pd.DataFrame:
+    """Build the staged DataFrame with explicit, nullable dtypes.
 
-    No-ops on an empty list rather than issuing a pointless connection
-    open/close cycle -- small thing, but it's the kind of guard that
-    matters once this runs on a 60-second poll loop indefinitely.
+    pandas' nullable 'Int64' keeps missing integers as <NA> instead of
+    silently upcasting the whole column to float (1 -> 1.0).
+    """
+    df = pd.DataFrame(rows, columns=list(STAGE_COLUMNS))
+    for col, typ in STAGE_COLUMNS.items():
+        if typ == "INTEGER":
+            df[col] = df[col].astype("Int64")
+        elif typ == "FLOAT":
+            df[col] = df[col].astype("float64")
+    return df
+
+
+def overwrite_day_partition(rows: list[dict], logical_date: date) -> int:
+    """Replace raw.taxi_trips rows for logical_date with `rows`. Returns rows inserted.
+
+    An empty batch does NOT wipe the day: an empty response for a valid 2023
+    date is far more likely an upstream problem than a real "zero trips" day,
+    so we keep the last good data and let the run be marked 'partial'.
     """
     if not rows:
         return 0
 
+    df = rows_to_stage_frame(rows)
+
     with get_connection() as conn:
         cur = conn.cursor()
-        cur.executemany(INSERT_TAXI_TRIPS_SQL, rows)
-        return cur.rowcount
+        cur.execute(CREATE_STAGE_SQL)  # DDL auto-commits, so it runs before BEGIN
+        write_pandas(conn, df, STAGE_TABLE, quote_identifiers=False)
+
+        cur.execute("BEGIN")
+        try:
+            cur.execute(DELETE_DAY_SQL, (logical_date.isoformat(),))
+            cur.execute(INSERT_FROM_STAGE_SQL)
+            inserted = cur.rowcount
+            cur.execute("COMMIT")
+        except Exception:
+            cur.execute("ROLLBACK")
+            raise
+        return inserted
 
 
 def log_pipeline_run(run_record: dict) -> None:
-    """Insert a single row into pipeline_runs marking this run's outcome.
-
-    Single execute(), not executemany() -- there's exactly one run
-    record per run, so batching machinery would be overhead with no
-    payoff. Matching the tool to the cardinality of the data matters
-    as much as using the tool at all.
-    """
+    """One row per run in raw.pipeline_runs -- the source for pipeline-health metrics."""
     with get_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(INSERT_PIPELINE_RUN_SQL, run_record)
+        conn.cursor().execute(INSERT_PIPELINE_RUN_SQL, run_record)

@@ -9,28 +9,46 @@ CREATE SCHEMA IF NOT EXISTS datapulse.staging;
 CREATE SCHEMA IF NOT EXISTS datapulse.marts;
 
 CREATE TABLE IF NOT EXISTS datapulse.raw.taxi_trips (
-    trip_id VARCHAR,
-    vendor_id VARCHAR,
-    pickup_datetime TIMESTAMP,
-    dropoff_datetime TIMESTAMP,
+    trip_id VARCHAR,               -- sha256 of the full source record (see nyc_api_reader)
+    vendor_id INTEGER,
+    pickup_datetime TIMESTAMP_NTZ,
+    dropoff_datetime TIMESTAMP_NTZ,
     passenger_count INTEGER,
     trip_distance FLOAT,
+    ratecode_id INTEGER,
+    store_and_fwd_flag VARCHAR,
+    pu_location_id INTEGER,
+    do_location_id INTEGER,
+    payment_type INTEGER,
     fare_amount FLOAT,
+    extra FLOAT,
+    mta_tax FLOAT,
     tip_amount FLOAT,
-    payment_type VARCHAR,
-    ingested_at TIMESTAMP,
-    run_id VARCHAR
+    tolls_amount FLOAT,
+    improvement_surcharge FLOAT,
+    total_amount FLOAT,
+    congestion_surcharge FLOAT,
+    airport_fee FLOAT,
+    ingested_at TIMESTAMP_NTZ,
+    run_id VARCHAR,
+    pickup_date DATE               -- partition key for delete+insert overwrite
 );
+-- No CLUSTER BY on purpose: each daily load inserts one day in one go, so
+-- micro-partitions are already naturally grouped by pickup_date. An explicit
+-- clustering key turns on Automatic Clustering, a background service that
+-- bills credits -- a cost with no benefit at this data volume.
 
 CREATE TABLE IF NOT EXISTS datapulse.raw.pipeline_runs (
     run_id VARCHAR PRIMARY KEY,
+    logical_date DATE,
     started_at TIMESTAMP,
     completed_at TIMESTAMP,
     status VARCHAR,
     source VARCHAR,
     rows_ingested INTEGER,
     rows_failed INTEGER,
-    duration_seconds FLOAT
+    duration_seconds FLOAT,
+    error_message VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS datapulse.raw.quality_results (
