@@ -64,3 +64,24 @@
 - No CLUSTER BY: a clustering key enables Automatic Clustering (billed credits) with no benefit at this volume; daily inserts already group micro-partitions by date.
 
 **Concept tests written:** `tests/learning/test_nyc_api_concepts.py` (rewritten, 7 tests), `tests/learning/test_idempotent_load_concepts.py` (7 tests: logical dates, nullable Int64, transaction ordering, rollback on failure, empty-batch guard).
+
+## Quality gate (Great Expectations) + Slack alerts — 2026-09-28
+**Component built:** `quality/gate.py` (12 checks in two tiers), `alerts/slack.py`, quarantine table, per-check results in `raw.quality_results`, wired into `ingestion/run_once.py`.
+
+**Design:**
+- 5 **blocking** checks (source schema matches, trip_id not null, trip_id unique, pickup not null, row count within 0.5x-2x of the previous successful run). Any failure -> nothing loads, run marked `blocked`, Slack alert, non-zero exit.
+- 7 **row-level** checks (dropoff > pickup, fare 0-500, distance 0-100, passengers 1-6, payment type valid, rate code valid, PU/DO location 1-265). Failing rows go to `raw.taxi_trips_quarantine` with the names of the checks they failed; everything else loads. Slack warns when any check fails on more than 5% of rows.
+- Good rows and quarantined rows are swapped in the same transaction, so a rerun never leaves them out of sync.
+
+**What I learned:**
+- A gate that blocks on every rule never loads real TLC data (refunds are negative fares). Tiering by *what a failure means* -- untrustworthy batch vs bad row -- keeps "gated" true and the pipeline running.
+- The schema check must run on the *source* columns, not my own mapped frame (which always matches, since I build it). It would have caught my early wrong-dataset bug.
+- Socrata omits null keys from JSON, so the source schema is the union of keys across records, not one record's keys.
+- GE column-map expectations ignore nulls: a null passenger_count passes the 1-6 check. Completeness and validity are separate questions.
+- GE's `result_format="COMPLETE"` returns `unexpected_index_list`, so the same suite that produces metrics also tells me exactly which rows to quarantine -- no duplicated rules in pandas.
+- 12 checks = 13 GE expectations (location range is one check over two columns). Be exact.
+- Bandit B608: SQL identifiers can't be bound parameters. The fix isn't just `# nosec` -- it's an allowlist assert so the claim "identifiers never come from input" is enforced.
+- Alerting must never raise: a Slack outage can't be allowed to lose the pipeline_runs record.
+- First full-day numbers (2023-01-01): 76,752 rows, 76,752 distinct trip_ids, loaded in 26.5s -- no exact duplicates in the source, so uniqueness is a meaningful blocking check.
+
+**Concept tests written:** `tests/learning/test_quality_gate_concepts.py` (11, real GE), `tests/learning/test_alerting_concepts.py` (3, incl. "blocked run never reaches the load step").

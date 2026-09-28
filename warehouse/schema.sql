@@ -38,6 +38,35 @@ CREATE TABLE IF NOT EXISTS datapulse.raw.taxi_trips (
 -- clustering key turns on Automatic Clustering, a background service that
 -- bills credits -- a cost with no benefit at this data volume.
 
+-- Rows that failed at least one row-level quality check (see quality/gate.py).
+-- Same shape as taxi_trips plus the names of the checks each row failed.
+CREATE TABLE IF NOT EXISTS datapulse.raw.taxi_trips_quarantine (
+    trip_id VARCHAR,
+    vendor_id INTEGER,
+    pickup_datetime TIMESTAMP_NTZ,
+    dropoff_datetime TIMESTAMP_NTZ,
+    passenger_count INTEGER,
+    trip_distance FLOAT,
+    ratecode_id INTEGER,
+    store_and_fwd_flag VARCHAR,
+    pu_location_id INTEGER,
+    do_location_id INTEGER,
+    payment_type INTEGER,
+    fare_amount FLOAT,
+    extra FLOAT,
+    mta_tax FLOAT,
+    tip_amount FLOAT,
+    tolls_amount FLOAT,
+    improvement_surcharge FLOAT,
+    total_amount FLOAT,
+    congestion_surcharge FLOAT,
+    airport_fee FLOAT,
+    ingested_at TIMESTAMP_NTZ,
+    run_id VARCHAR,
+    failed_checks VARCHAR,
+    pickup_date DATE
+);
+
 CREATE TABLE IF NOT EXISTS datapulse.raw.pipeline_runs (
     run_id VARCHAR PRIMARY KEY,
     logical_date DATE,
@@ -45,8 +74,9 @@ CREATE TABLE IF NOT EXISTS datapulse.raw.pipeline_runs (
     completed_at TIMESTAMP,
     status VARCHAR,
     source VARCHAR,
-    rows_ingested INTEGER,
-    rows_failed INTEGER,
+    rows_ingested INTEGER,         -- rows loaded into raw.taxi_trips
+    rows_quarantined INTEGER,      -- rows that failed a row-level quality check
+    rows_failed INTEGER,           -- source records skipped at mapping (no identity)
     duration_seconds FLOAT,
     error_message VARCHAR
 );

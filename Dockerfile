@@ -7,6 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ingestion/ ingestion/
 COPY warehouse/ warehouse/
+COPY quality/ quality/
+COPY alerts/ alerts/
 
 # One-shot batch: run one logical day and exit. Scheduling is cron's job
 # (see deploy/crontab), not a loop inside the container.

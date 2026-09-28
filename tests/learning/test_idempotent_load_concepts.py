@@ -64,12 +64,19 @@ def _patch(monkeypatch, cursor):
 
 def test_overwrite_is_delete_then_insert_inside_one_transaction(monkeypatch):
     """I learned: the temp-table DDL and staging happen BEFORE BEGIN (DDL
-    auto-commits in Snowflake); the delete+insert swap is one transaction."""
+    auto-commits in Snowflake); both tables' delete+insert swap is ONE
+    transaction, so trips and quarantine for a day always match."""
     log: list[str] = []
     _patch(monkeypatch, _FakeCursor(log))
-    inserted = loader.overwrite_day_partition([{"trip_id": "a"}, {"trip_id": "b"}], date(2023, 1, 1))
+    inserted = loader.overwrite_day_partition(
+        [{"trip_id": "a"}, {"trip_id": "b"}], [{"trip_id": "c", "failed_checks": "x"}],
+        date(2023, 1, 1),
+    )
     assert inserted == 2
-    assert log == ["CREATE", "WRITE_PANDAS", "BEGIN", "DELETE", "INSERT", "COMMIT"]
+    assert log == [
+        "CREATE", "CREATE", "WRITE_PANDAS", "WRITE_PANDAS",
+        "BEGIN", "DELETE", "DELETE", "INSERT", "INSERT", "COMMIT",
+    ]
 
 
 def test_failed_insert_rolls_back_so_the_day_is_not_lost(monkeypatch):
@@ -78,7 +85,7 @@ def test_failed_insert_rolls_back_so_the_day_is_not_lost(monkeypatch):
     log: list[str] = []
     _patch(monkeypatch, _FakeCursor(log, fail_on="INSERT"))
     with pytest.raises(RuntimeError):
-        loader.overwrite_day_partition([{"trip_id": "a"}], date(2023, 1, 1))
+        loader.overwrite_day_partition([{"trip_id": "a"}], [], date(2023, 1, 1))
     assert log[-1] == "ROLLBACK" and "COMMIT" not in log
 
 
@@ -87,5 +94,5 @@ def test_empty_batch_never_touches_the_warehouse(monkeypatch):
     an upstream problem than 'zero trips' -- keep the last good data."""
     log: list[str] = []
     _patch(monkeypatch, _FakeCursor(log))
-    assert loader.overwrite_day_partition([], date(2023, 1, 1)) == 0
+    assert loader.overwrite_day_partition([], [], date(2023, 1, 1)) == 0
     assert log == []

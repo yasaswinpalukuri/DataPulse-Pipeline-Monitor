@@ -125,10 +125,13 @@ def fetch_trips_for_date(
     run_id: str,
     page_size: int = DEFAULT_PAGE_SIZE,
     max_records: int | None = None,
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict], int, set[str]]:
     """Fetch all trips picked up on logical_date (optionally capped).
 
-    Returns (mapped_rows, skipped_count). max_records=None means the full day
+    Returns (mapped_rows, skipped_count, observed_source_columns). The observed
+    columns are the union of keys across all records -- Socrata omits a key
+    when its value is null, so a single record can't tell you the schema. The
+    quality gate compares this set against SOURCE_COLUMNS. max_records=None means the full day
     (~80-110k rows for a 2023 day); a cap is only for quick local testing.
     """
     session = requests.Session()  # reuse one TCP/TLS connection across pages
@@ -136,6 +139,7 @@ def fetch_trips_for_date(
     rows: list[dict] = []
     skipped = 0
     offset = 0
+    observed_columns: set[str] = set()
 
     while max_records is None or len(rows) + skipped < max_records:
         limit = page_size if max_records is None else min(
@@ -150,6 +154,7 @@ def fetch_trips_for_date(
         page = response.json()
 
         for record in page:
+            observed_columns.update(record)
             mapped = map_record(record, run_id, ingested_at)
             if mapped is None:
                 skipped += 1
@@ -160,4 +165,4 @@ def fetch_trips_for_date(
             break  # short (or empty) page: end of this day's data
         offset += limit
 
-    return rows, skipped
+    return rows, skipped, observed_columns
