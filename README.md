@@ -34,7 +34,7 @@ Scheduled with cron on a home server: see `deploy/crontab` and `scripts/run_dail
 ## Two transformation paths
 
 - **Snowflake + dbt** (primary, Days 1-8): SQL-native transformations, warehouse-pushdown aggregation.
-- **AWS Glue + PySpark + Redshift** (`transforms/`, `warehouse/redshift_*.py`): the same rolling-anomaly and quality-score logic, implemented in PySpark and targeting Redshift, for roles that specifically require Glue/PySpark/Redshift experience. `transforms/quality_transforms_core.py` has zero AWS dependencies and is unit-tested locally with a real Spark session (`pip install -r requirements-aws.txt` first); `transforms/glue_run_quality_job.py` is the thin AWS Glue wrapper around it and only runs inside Glue's managed environment.
+- **AWS Glue + PySpark + Redshift** (`transforms/`, `redshift/`, `scripts/aws/`): a Glue 5.0 job turns one month of TLC Parquet from S3 into a star schema (1 fact + 5 dimensions) written back to S3 as Parquet, then Redshift Serverless loads it with `COPY` through the Redshift Data API. `transforms/star_schema_core.py` has zero AWS dependencies and is unit-tested locally with a real Spark session; `transforms/glue_star_schema_job.py` is the thin Glue wrapper.
 
 ## Project layout
 

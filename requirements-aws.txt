@@ -1,9 +1,7 @@
 # AWS Glue / Redshift / PySpark path (kept separate from requirements.txt).
 #
-# pyspark is only needed for LOCAL testing of transforms/quality_transforms_core.py.
-# When glue_run_quality_job.py actually runs inside AWS Glue, Glue's managed
-# runtime provides pyspark + awsglue itself -- installing it here would be
-# redundant in that environment and is only for `pytest` on your laptop.
+# pyspark is only for LOCAL testing of transforms/*_core.py. Inside AWS Glue
+# 5.0 (Spark 3.5), the managed runtime provides pyspark + awsglue itself.
+# boto3 drives the Redshift Data API loader (scripts/aws/load_redshift.py).
 pyspark==3.5.3
-redshift-connector==2.1.5
 boto3==1.35.36

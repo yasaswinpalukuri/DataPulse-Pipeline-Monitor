@@ -4,9 +4,10 @@ Core PySpark transformation logic for DataPulse.
 Deliberately has ZERO dependency on awsglue.* imports. This is the
 piece that gets unit-tested locally (see tests/learning/test_pyspark_
 window_concepts.py, which actually runs a local Spark session against
-this code). glue_run_quality_job.py is a thin wrapper around these
-functions that only handles Glue-specific I/O (reading/writing
-DynamicFrames, Glue job bookkeeping).
+this code). Its original Glue wrapper was retired on 2026-09-28 because
+it read catalog tables that never existed; the deployed Glue job is now
+glue_star_schema_job.py. These functions remain as tested library code
+for pipeline-health trends (rolling anomaly scores over quality results).
 
 Why split it this way: AWS Glue's runtime (GlueContext, job
 bookmarks, DynamicFrame) can't be instantiated outside an actual Glue

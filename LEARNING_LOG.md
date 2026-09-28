@@ -85,3 +85,24 @@
 - First full-day numbers (2023-01-01): 76,752 rows, 76,752 distinct trip_ids, loaded in 26.5s -- no exact duplicates in the source, so uniqueness is a meaningful blocking check.
 
 **Concept tests written:** `tests/learning/test_quality_gate_concepts.py` (11, real GE), `tests/learning/test_alerting_concepts.py` (3, incl. "blocked run never reaches the load step").
+
+## Glue + PySpark star schema -> Redshift Serverless — 2026-09-28
+**Component built:** `transforms/star_schema_core.py` (pure PySpark: 1 fact + 5 dims), `transforms/glue_star_schema_job.py` (thin Glue 5.0 wrapper), `redshift/ddl.sql`, `scripts/aws/load_redshift.py` (Redshift Data API loader), `scripts/aws/*.sh` (create/run/teardown), `infra/iam/*.json` (least-privilege roles). Retired `glue_run_quality_job.py`, `redshift_loader.py`, `redshift_client.py` (targeted tables that never existed).
+
+**Design decisions:**
+- 5 dimensions: date, time, zone (role-playing pickup/dropoff), payment type, rate code. Vendor is a degenerate dimension on the fact (2-3 values, one attribute).
+- Smart keys for date (yyyymmdd) and time (hhmm); TLC codes as keys elsewhere. Separate date + time dims (365 + 1,440 rows) instead of a 525,600-row datetime dim.
+- Unknown member (-1) in every lookup dim, so unmatched codes (payment_type 0, stray LocationIDs) still join.
+- Curated layer drops only rows that can't be modelled (stray years, missing timestamps, dropoff before pickup, >24h). Refunds (negative fares) are real data and stay.
+- Money as DECIMAL(10,2): sums of doubles drift.
+- Glue writes Parquet to S3; Redshift loads with COPY. No Glue->Redshift JDBC (that needs VPC networking) and the curated Parquet doubles as the S3 curated zone.
+- Fact written with dynamic partition overwrite -> rerunning a month replaces only that month in S3. In Redshift, one Data API batch = one transaction: stage -> delete month -> insert. DELETE not TRUNCATE (TRUNCATE commits immediately in Redshift).
+- Redshift physical design: dims DISTSTYLE ALL (local joins), fact DISTSTYLE AUTO (zone distkey would skew), SORTKEY(pickup_date_key).
+- Session timezone pinned to UTC in Glue so NYC wall-clock timestamps are never shifted across midnight.
+
+**What I learned:**
+- COPY FORMAT AS PARQUET maps columns by position; a test now asserts the DDL column order equals the Spark output schema.
+- TLC monthly files drift in column case (Airport_fee) and types; normalize to an explicit contract first.
+- The Redshift Data API (HTTPS + IAM) removes drivers, passwords and VPC networking from the loader.
+
+**Concept tests written:** `tests/learning/test_star_schema_concepts.py` (11, real local Spark).
