@@ -1,0 +1,30 @@
+name: datapulse
+version: "1.0.0"
+profile: datapulse
+config-version: 2
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target"]
+
+# Layering contract (enforced by tests/learning/test_dbt_layering_concepts.py):
+#   staging      -> views, 1:1 with a raw source, rename/cast only
+#   intermediate -> views, joins/enrichment, never read by consumers
+#   marts        -> tables, what FastAPI/Streamlit read
+models:
+  datapulse:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+
+seeds:
+  datapulse:
+    +schema: staging

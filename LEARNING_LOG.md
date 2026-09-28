@@ -106,3 +106,22 @@
 - The Redshift Data API (HTTPS + IAM) removes drivers, passwords and VPC networking from the loader.
 
 **Concept tests written:** `tests/learning/test_star_schema_concepts.py` (11, real local Spark).
+
+## dbt: staging -> intermediate -> marts on Snowflake — 2026-09-28
+**Component built:** `dbt/` project (dbt-core 1.12, dbt-snowflake 1.12): 4 sources, 4 staging views, 1 intermediate view, 4 mart tables, 1 seed, 21 tests. Own image (`Dockerfile.dbt`), runs in the daily cron job right after ingestion, `dbt parse` in CI.
+
+**Design decisions:**
+- Staging = views, 1:1 with a raw table (rename/cast only). Only staging may call `source()`; everything else uses `ref()` -- enforced by a pytest, so a raw column rename is fixed in one place.
+- Intermediate (`int_run_quality`) joins runs to their check results; marts are tables because the API and dashboard read them repeatedly.
+- `quality_check_catalog` seed holds the 12 checks and their severity, so "blocking vs row-level" lives in the warehouse once. A pytest asserts the seed equals `quality/gate.py`'s real checks.
+- Source freshness on `raw.pipeline_runs` (warn 36h, error 72h): dbt itself flags a pipeline that stopped running.
+- dbt runs even when ingestion is blocked/failed: health marts must show bad runs, not hide them.
+- `generate_schema_name` override so `+schema: marts` lands in DATAPULSE.MARTS instead of STAGING_MARTS.
+- dbt in its own image/venv: dbt-snowflake needs snowflake-connector 4.x, ingestion pins 3.12. Isolate conflicting tools rather than force one version on both.
+
+**What I learned:**
+- dbt 1.10 is out of support; 1.12 moved `freshness`/`loaded_at_field` under `config:` and generic-test args under `arguments:`. Zero deprecation warnings is the bar.
+- `dbt parse` validates every ref/source/test/Jinja without a warehouse connection -- ideal CI check.
+- The layering test immediately caught an undocumented intermediate model.
+
+**Concept tests written:** `tests/learning/test_dbt_layering_concepts.py` (5).

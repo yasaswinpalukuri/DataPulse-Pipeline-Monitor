@@ -1,0 +1,16 @@
+# Credentials come only from environment variables (the same .env the
+# ingestion job uses) -- nothing secret is committed. The account is
+# normalised so either "xy12345" or "xy12345.snowflakecomputing.com" works.
+datapulse:
+  target: prod
+  outputs:
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') | replace('.snowflakecomputing.com', '') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'ACCOUNTADMIN') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'COMPUTE_WH') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'DATAPULSE') }}"
+      schema: staging
+      threads: 4

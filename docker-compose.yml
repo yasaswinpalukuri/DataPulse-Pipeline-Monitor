@@ -9,6 +9,16 @@ services:
     # their own service blocks (and their own ports, offset to avoid colliding with
     # Groot's existing agent_service on 8000) once those are built.
 
+  dbt:
+    build:
+      context: .
+      dockerfile: Dockerfile.dbt
+    env_file: .env
+    # One-shot, like ingestion: `docker compose run --rm dbt build`.
+    # run_daily.sh runs it right after ingestion so marts are always as
+    # fresh as raw. Same .env, so dbt and ingestion share one set of
+    # Snowflake credentials and nothing secret is baked into the image.
+
   # api:
   #   build:
   #     context: .

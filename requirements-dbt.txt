@@ -1,0 +1,5 @@
+# dbt runs in its own image (Dockerfile.dbt). dbt-snowflake needs
+# snowflake-connector-python 4.x, while ingestion pins 3.12 -- isolating the
+# two tools avoids forcing one onto the other's dependency set.
+dbt-core==1.12.5
+dbt-snowflake==1.12.1

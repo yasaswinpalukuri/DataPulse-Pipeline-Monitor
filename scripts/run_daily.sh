@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Called by cron (deploy/crontab). Runs one daily batch in a fresh container.
+# Called by cron (deploy/crontab). Runs one daily batch (ingestion, then dbt)
+# in fresh containers.
 #
 # Why a wrapper script instead of putting the command straight in crontab:
 # cron runs with a minimal environment (no PATH to docker, wrong working
@@ -14,7 +15,16 @@ export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
 
 cd "$REPO_DIR"
 echo "=== $(date -Iseconds) cron run starting" >> "${LOG_DIR}/daily_run.log"
+log="${LOG_DIR}/daily_run.log"
 status=0
-docker compose run --rm ingestion "$@" >> "${LOG_DIR}/daily_run.log" 2>&1 || status=$?
-echo "=== $(date -Iseconds) cron run finished (exit ${status})" >> "${LOG_DIR}/daily_run.log"
+docker compose run --rm ingestion "$@" >> "$log" 2>&1 || status=$?
+
+# dbt runs even if ingestion was blocked or failed: the pipeline-health marts
+# must reflect a bad run, not hide it. `dbt build` = seed + run + test in
+# dependency order. Freshness warns if runs have stopped arriving.
+echo "--- $(date -Iseconds) dbt build" >> "$log"
+docker compose run --rm dbt build >> "$log" 2>&1 || status=$((status > 0 ? status : 2))
+docker compose run --rm dbt source freshness >> "$log" 2>&1 || true
+
+echo "=== $(date -Iseconds) cron run finished (exit ${status})" >> "$log"
 exit "$status"

@@ -1,0 +1,11 @@
+version: 2
+
+models:
+  - name: int_run_quality
+    description: One row per ingestion run joined to its quality-check outcome.
+    columns:
+      - name: run_id
+        tests: [unique, not_null]
+      - name: blocking_failures
+        description: Failed checks whose severity (from quality_check_catalog) is blocking.
+        tests: [not_null]

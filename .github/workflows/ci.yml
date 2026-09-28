@@ -30,3 +30,17 @@ jobs:
 
       - name: Run tests (pytest)
         run: pytest tests/ -v
+
+      # dbt gets its own virtualenv: dbt-snowflake needs snowflake-connector
+      # 4.x, the ingestion code pins 3.12. `dbt parse` compiles every model,
+      # ref, source and test without connecting to Snowflake, so it catches
+      # broken SQL/Jinja/YAML on every push. Dummy credentials are fine here.
+      - name: dbt parse
+        env:
+          SNOWFLAKE_ACCOUNT: ci-dummy
+          SNOWFLAKE_USER: ci
+          SNOWFLAKE_PASSWORD: ci
+        run: |
+          python -m venv .dbt-venv
+          .dbt-venv/bin/pip install -q -r requirements-dbt.txt
+          cd dbt && ../.dbt-venv/bin/dbt parse --profiles-dir . --no-partial-parse

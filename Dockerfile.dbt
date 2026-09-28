@@ -1,0 +1,13 @@
+# dbt in its own image: dbt-snowflake needs snowflake-connector 4.x while
+# the ingestion image pins 3.12, so the two tools never share an environment.
+FROM python:3.12-slim
+
+WORKDIR /dbt
+COPY requirements-dbt.txt /tmp/requirements-dbt.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-dbt.txt
+COPY dbt/ /dbt/
+
+# profiles.yml lives in the project and reads credentials from env vars.
+ENV DBT_PROFILES_DIR=/dbt
+ENTRYPOINT ["dbt"]
+CMD ["build"]

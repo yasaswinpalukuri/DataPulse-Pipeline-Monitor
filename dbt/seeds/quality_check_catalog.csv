@@ -1,0 +1,13 @@
+check_name,severity,description
+source_schema_matches,blocking,API returns exactly the expected source columns
+trip_id_not_null,blocking,Every row has a trip_id
+trip_id_unique,blocking,No duplicate trip_id in the batch
+pickup_datetime_not_null,blocking,Every row has a parseable pickup time
+row_count_vs_previous_run,blocking,Row count within 0.5x-2x of the previous successful run
+dropoff_after_pickup,row,Dropoff time is after pickup time
+fare_amount_0_500,row,Fare between 0 and 500
+trip_distance_0_100,row,Distance between 0 and 100 miles
+passenger_count_1_6,row,Passenger count between 1 and 6
+payment_type_valid,row,Payment type in the TLC code set
+ratecode_id_valid,row,Rate code in the TLC code set
+location_ids_1_265,row,Pickup and dropoff LocationID between 1 and 265

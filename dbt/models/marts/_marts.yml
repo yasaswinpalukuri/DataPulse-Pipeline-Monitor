@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: mart_pipeline_runs
+    description: One row per ingestion run with its quality outcome.
+    columns:
+      - name: run_id
+        tests: [unique, not_null]
+  - name: mart_pipeline_health_daily
+    description: Pipeline health per day the pipeline ran.
+    columns:
+      - name: run_date
+        tests: [unique, not_null]
+  - name: mart_quality_check_trends
+    description: Per-check results per run, for trend charts.
+    columns:
+      - name: check_name
+        tests: [not_null]
+  - name: mart_daily_trip_metrics
+    description: Trip volume, revenue and averages per pickup date.
+    columns:
+      - name: pickup_date
+        tests: [unique, not_null]
