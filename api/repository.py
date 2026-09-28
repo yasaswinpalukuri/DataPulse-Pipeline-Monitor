@@ -32,13 +32,23 @@ DAILY_HEALTH_SQL = """
     ORDER BY run_date DESC
     LIMIT %s
 """
+# The N most recent gated runs, then all their check rows. (An earlier
+# version used SELECT DISTINCT run_id ... ORDER BY started_at: invalid in
+# Snowflake, because the ORDER BY column isn't in the DISTINCT select list.
+# Unit tests with a fake repository couldn't catch it; scripts/smoke_api.sh
+# now calls every endpoint against the real warehouse after a deploy.)
 CHECKS_FOR_RECENT_RUNS_SQL = """
-    SELECT * FROM datapulse.marts.mart_quality_check_trends
-    WHERE run_id IN (
-        SELECT DISTINCT run_id FROM datapulse.marts.mart_quality_check_trends
-        ORDER BY started_at DESC LIMIT %s
+    WITH recent_runs AS (
+        SELECT run_id, MAX(started_at) AS run_started_at
+        FROM datapulse.marts.mart_quality_check_trends
+        GROUP BY run_id
+        ORDER BY run_started_at DESC
+        LIMIT %s
     )
-    ORDER BY started_at DESC, check_name
+    SELECT t.*
+    FROM datapulse.marts.mart_quality_check_trends t
+    JOIN recent_runs r ON t.run_id = r.run_id
+    ORDER BY t.started_at DESC, t.check_name
 """
 TRIPS_DAILY_SQL = """
     SELECT * FROM datapulse.marts.mart_daily_trip_metrics
