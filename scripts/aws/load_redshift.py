@@ -109,10 +109,16 @@ LIMIT 10
 
 
 def ddl_statements() -> list[str]:
-    text = "\n".join(
-        line for line in DDL_FILE.read_text().splitlines() if not line.strip().startswith("--")
-    )
-    return [s.strip() for s in text.split(";") if s.strip()]
+    """Split ddl.sql into statements for the Data API.
+
+    Comments are stripped BEFORE splitting on ';' -- including inline
+    '-- ...' comments. A semicolon inside a comment (e.g. "-- LocationID; -1
+    = Unknown") would otherwise cut a CREATE TABLE in half. Safe here because
+    the DDL contains no string literals, so '--' only ever starts a comment.
+    """
+    lines = [line.split("--", 1)[0].rstrip() for line in DDL_FILE.read_text().splitlines()]
+    text = "\n".join(line for line in lines if line.strip())
+    return [stmt.strip() for stmt in text.split(";") if stmt.strip()]
 
 
 class RedshiftDataClient:

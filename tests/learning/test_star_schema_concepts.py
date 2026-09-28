@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 from pyspark.sql import SparkSession
 
-from scripts.aws.load_redshift import dimension_sqls, fact_month_sqls, month_bounds
+from scripts.aws.load_redshift import (
+    ddl_statements,
+    dimension_sqls,
+    fact_month_sqls,
+    month_bounds,
+)
 from transforms.star_schema_core import (
     UNKNOWN_KEY,
     build_dim_date,
@@ -180,3 +185,17 @@ def test_month_load_is_one_overwrite_transaction():
     assert "BETWEEN 20230201 AND 20230228" in sqls[-2]
     assert sqls[-1] == "INSERT INTO star.fact_trips SELECT * FROM fact_stage"
     assert month_bounds(2024, 2) == (20240201, 20240229)  # leap year
+
+
+def test_ddl_splits_into_complete_statements():
+    """I learned (the hard way): splitting SQL on ';' breaks when a comment
+    contains a semicolon. The first real Redshift run failed with 'syntax
+    error at end of input' because '-- LocationID; -1 = Unknown' cut the
+    dim_zone CREATE TABLE in half. Test the splitter on the real file."""
+    stmts = ddl_statements()
+    assert len(stmts) == 7  # 1 CREATE SCHEMA + 1 fact + 5 dims
+    for stmt in stmts:
+        assert "--" not in stmt
+        assert stmt.startswith("CREATE")
+        if stmt.startswith("CREATE TABLE"):
+            assert stmt.count("(") == stmt.count(")"), stmt[:60]
