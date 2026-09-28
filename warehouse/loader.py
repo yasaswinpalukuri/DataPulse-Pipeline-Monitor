@@ -66,6 +66,7 @@ STAGE_COLUMNS = {
 }
 
 _TIMESTAMP_COLS = {"pickup_datetime", "dropoff_datetime", "ingested_at"}
+_PICKUP_DATE_EXPR = "TO_DATE(TRY_TO_TIMESTAMP_NTZ(pickup_datetime))"
 
 
 def _create_stage_sql(stage: str, columns: dict[str, str]) -> str:
@@ -86,10 +87,10 @@ def _insert_from_stage_sql(target: str, stage: str, columns: dict[str, str]) -> 
     select = ", ".join(
         f"TRY_TO_TIMESTAMP_NTZ({c})" if c in _TIMESTAMP_COLS else c for c in columns
     )
-    return (  # nosec B608 -- identifiers come from the allowlist above
-        f"INSERT INTO {target} ({', '.join(columns)}, pickup_date) "
-        f"SELECT {select}, TO_DATE(TRY_TO_TIMESTAMP_NTZ(pickup_datetime)) FROM {stage}"
-    )
+    column_list = ", ".join(columns)
+    # Identifiers are allowlisted above, so B608 is a false positive here.
+    # The nosec must sit on the same line as the f-string, with nothing after it.
+    return f"INSERT INTO {target} ({column_list}, pickup_date) SELECT {select}, {_PICKUP_DATE_EXPR} FROM {stage}"  # nosec B608
 
 
 QUARANTINE_COLUMNS = {**STAGE_COLUMNS, "failed_checks": "VARCHAR"}

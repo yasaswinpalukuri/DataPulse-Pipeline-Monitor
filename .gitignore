@@ -9,3 +9,4 @@ dbt/target/
 dbt/logs/
 dbt/dbt_packages/
 logs/
+.DS_Store
