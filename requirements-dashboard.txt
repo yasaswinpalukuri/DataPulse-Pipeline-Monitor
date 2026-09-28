@@ -1,0 +1,4 @@
+# Dashboard image only. No Snowflake connector here on purpose:
+# the dashboard reads the API, never the warehouse.
+streamlit==1.64.0
+requests==2.32.3

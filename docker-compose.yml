@@ -19,22 +19,28 @@ services:
     # fresh as raw. Same .env, so dbt and ingestion share one set of
     # Snowflake credentials and nothing secret is baked into the image.
 
-  # api:
-  #   build:
-  #     context: .
-  #     dockerfile: api/Dockerfile
-  #   container_name: datapulse-api
-  #   restart: unless-stopped
-  #   env_file: .env
-  #   ports:
-  #     - "8010:8000"   # 8010 on the host -- 8000 is already Groot's agent_service
+  # Long-running services. Ports are published on BIND_ADDR (default
+  # 127.0.0.1). Docker-published ports bypass UFW, so on Groot BIND_ADDR is
+  # set to the Tailscale IP in .env: reachable from my devices, not the LAN.
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: datapulse-api
+    restart: unless-stopped
+    env_file: .env          # the ONLY service besides the batch jobs with Snowflake credentials
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8010:8000"   # 8000 on the host is Groot's agent_service
 
-  # dashboard:
-  #   build:
-  #     context: .
-  #     dockerfile: dashboard/Dockerfile
-  #   container_name: datapulse-dashboard
-  #   restart: unless-stopped
-  #   env_file: .env
-  #   ports:
-  #     - "8501:8501"
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: datapulse-dashboard
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8000   # talks to the API over the compose network; no .env, no credentials
+    depends_on:
+      - api
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8501:8501"

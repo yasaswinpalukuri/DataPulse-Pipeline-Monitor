@@ -12,3 +12,4 @@ logs/
 .DS_Store
 build/
 .dbt-venv/
+.dash-venv/

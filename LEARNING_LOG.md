@@ -125,3 +125,21 @@
 - The layering test immediately caught an undocumented intermediate model.
 
 **Concept tests written:** `tests/learning/test_dbt_layering_concepts.py` (5).
+
+## FastAPI health API + Streamlit dashboard — 2026-09-28
+**Component built:** `api/` (FastAPI: status, runs, daily health, quality checks, trip metrics), `dashboard/` (Streamlit), Dockerfiles, compose services `api` (:8010) and `dashboard` (:8501).
+
+**Design decisions:**
+- Streamlit -> FastAPI -> dbt marts. The API reads only marts (dbt's tested serving contract); the dashboard reads only the API. Snowflake credentials exist only in the API container.
+- `/health` (liveness, no Snowflake) vs `/health/ready` (readiness, Snowflake reachable), so a warehouse hiccup never gets a healthy container restarted.
+- Status rules in pure Python: down (no success in 36h, or latest run failed), degraded (blocked/partial, or >5% quarantined), healthy. 36h = the dbt freshness threshold, so both agree.
+- 60s TTL cache in the repository and in Streamlit: every Snowflake query can resume the warehouse (60s minimum bill), and data changes once a day.
+- Typed Pydantic response models -> OpenAPI docs at /docs; query params bounded (422 before any SQL).
+- Ports bound to BIND_ADDR (default 127.0.0.1; Tailscale IP on Groot) because Docker-published ports bypass UFW.
+
+**What I learned:**
+- FastAPI dependency overrides let the HTTP layer be tested with a fake repository.
+- Streamlit's AppTest renders the real script headlessly; `use_container_width` is deprecated in 1.64 (`width="stretch"`).
+- Snowflake returns UPPERCASE column names; normalise once in the repository.
+
+**Concept tests written:** `tests/learning/test_api_concepts.py` (11), `tests/learning/test_dashboard_concepts.py` (1, own venv in CI).

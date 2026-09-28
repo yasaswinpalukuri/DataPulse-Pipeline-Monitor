@@ -21,6 +21,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-aws.txt
+          pip install -r requirements-api.txt
 
       - name: Lint (ruff)
         run: ruff check .
@@ -44,3 +45,11 @@ jobs:
           python -m venv .dbt-venv
           .dbt-venv/bin/pip install -q -r requirements-dbt.txt
           cd dbt && ../.dbt-venv/bin/dbt parse --profiles-dir . --no-partial-parse
+
+      # The dashboard image has its own deps (no Snowflake connector), so its
+      # render test runs in its own venv. Deprecation warnings fail the step.
+      - name: Dashboard render test (Streamlit AppTest)
+        run: |
+          python -m venv .dash-venv
+          .dash-venv/bin/pip install -q -r requirements-dashboard.txt pytest
+          .dash-venv/bin/python -m pytest tests/learning/test_dashboard_concepts.py -q -W error::DeprecationWarning
