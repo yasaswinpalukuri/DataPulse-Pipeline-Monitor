@@ -21,6 +21,8 @@ import uuid
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
+from dotenv import load_dotenv
+
 from alerts.slack import send_alert
 from ingestion.logical_date import default_logical_date, parse_logical_date
 from ingestion.nyc_api_reader import fetch_trips_for_date
@@ -127,6 +129,10 @@ def run_ingestion_cycle(logical_date: date, max_records: int | None = None) -> d
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Config is loaded at the process boundary, not on import. Inside Docker
+    # the variables already exist (env_file) and load_dotenv() doesn't
+    # override them; on a laptop it fills them in from .env.
+    load_dotenv()
     parser = argparse.ArgumentParser(description="DataPulse daily batch ingestion")
     parser.add_argument("--date", help="Logical date YYYY-MM-DD (must be in 2023)")
     parser.add_argument(

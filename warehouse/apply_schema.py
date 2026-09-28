@@ -9,6 +9,8 @@ explicit and debuggable (if statement 4 fails, you know it's statement
 
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from warehouse.snowflake_client import execute
 
 SCHEMA_FILE = Path(__file__).parent / "schema.sql"
@@ -26,4 +28,5 @@ def apply_schema() -> None:
 
 
 if __name__ == "__main__":
+    load_dotenv()  # entry point loads config; library modules only read os.environ
     apply_schema()
