@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Called by cron (deploy/crontab). Runs one daily batch (ingestion, then dbt)
-# in fresh containers.
+# Called by cron (deploy/crontab). One daily batch in fresh containers:
+# API -> Snowflake raw, S3 -> Snowflake raw (COPY INTO), then dbt.
 #
 # Why a wrapper script instead of putting the command straight in crontab:
 # cron runs with a minimal environment (no PATH to docker, wrong working
@@ -18,6 +18,12 @@ echo "=== $(date -Iseconds) cron run starting" >> "${LOG_DIR}/daily_run.log"
 log="${LOG_DIR}/daily_run.log"
 status=0
 docker compose run --rm ingestion "$@" >> "$log" 2>&1 || status=$?
+
+# S3 raw zone -> Snowflake raw. COPY INTO skips files it already loaded, so
+# this is a few-second no-op until a new monthly TLC file lands in S3.
+echo "--- $(date -Iseconds) S3 -> Snowflake COPY" >> "$log"
+docker compose run --rm --entrypoint python ingestion -m ingestion.load_s3_to_snowflake >> "$log" 2>&1 \
+  || status=$((status > 0 ? status : 3))
 
 # dbt runs even if ingestion was blocked or failed: the pipeline-health marts
 # must reflect a bad run, not hide it. `dbt build` = seed + run + test in

@@ -39,3 +39,13 @@ python -m scripts.aws.load_redshift --verify
 ```bash
 bash scripts/aws/teardown.sh   # Glue job, Redshift workgroup+namespace, IAM roles, bucket, Glue logs
 ```
+
+## S3 -> Snowflake raw (storage integration + COPY INTO)
+```bash
+bash scripts/aws/04_snowflake_role.sh            # role + read-only policy; prints the Snowflake SQL
+# run the printed CREATE STORAGE INTEGRATION + DESC INTEGRATION in a Snowflake worksheet
+bash scripts/aws/04_snowflake_role.sh <STORAGE_AWS_IAM_USER_ARN> <STORAGE_AWS_EXTERNAL_ID>
+# on Groot (DATAPULSE_BUCKET set in .env):
+docker compose run --rm --entrypoint python ingestion -m ingestion.load_s3_to_snowflake
+```
+Rerunning the load is a no-op: COPY INTO skips files it has already loaded.

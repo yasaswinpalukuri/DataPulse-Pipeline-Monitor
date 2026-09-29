@@ -143,3 +143,17 @@
 - Snowflake returns UPPERCASE column names; normalise once in the repository.
 
 **Concept tests written:** `tests/learning/test_api_concepts.py` (11), `tests/learning/test_dashboard_concepts.py` (1, own venv in CI).
+
+## S3 -> Snowflake raw via storage integration + COPY INTO — 2026-09-29
+**Why:** the resume bullet says the pipeline ingests "(S3 / NYC Open Data API) into a Snowflake raw layer". A final word-by-word audit found S3 only fed the Glue/Redshift path, so this closes the gap rather than rewording around it.
+
+**Component built:** `ingestion/load_s3_to_snowflake.py`, `scripts/aws/04_snowflake_role.sh`, `infra/iam/snowflake-{trust,policy}.json`; runs in the daily cron job between API ingestion and dbt.
+
+**Design decisions:**
+- Storage integration: Snowflake's IAM user assumes a role that can only read `raw/tlc/*`, only with our external ID. No AWS keys in Snowflake or code. External ID prevents the confused-deputy problem.
+- COPY INTO is idempotent per file (64-day load metadata); FORCE is never set, and a test enforces that.
+- Separate `raw.tlc_yellow_trips` table: sources differ in grain (monthly files vs daily API pages); raw mirrors sources, dbt unifies.
+- Not logged to `raw.pipeline_runs`: that's the API batch history and the quality gate's row-count baseline. The S3 path's audit trail is Snowflake's COPY_HISTORY.
+- Parquet field names are case-sensitive; `airport_fee`/`Airport_fee` both read.
+
+**Concept tests written:** `tests/learning/test_s3_snowflake_concepts.py` (8).
