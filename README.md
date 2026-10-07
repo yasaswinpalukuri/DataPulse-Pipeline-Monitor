@@ -98,6 +98,10 @@ per-file load metadata makes reruns a no-op.
   overwrite. Redshift loads it with `COPY` through the Redshift Data API,
   in one transaction per month.
 
+**dbt lineage** (generated with `dbt docs generate`):
+
+[![dbt lineage](docs/img/dbt_lineage.png)](docs/img/dbt_lineage.png)
+
 **dbt (`dbt/`).**
 - **Layers:** staging views (1:1 with raw, rename and cast only), an
   intermediate model joining runs to check results, and mart tables for
