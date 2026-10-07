@@ -2,10 +2,52 @@ version: 2
 
 models:
   - name: int_run_quality
-    description: One row per ingestion run joined to its quality-check outcome.
+    description: >
+      One row per ingestion run with all quality metrics joined in. The single
+      source mart models read from — this is where severity classification from
+      quality_check_catalog is applied, so the blocking/row-level distinction
+      lives in the warehouse seed once rather than being hard-coded in every mart.
     columns:
       - name: run_id
+        description: Unique identifier inherited from stg_pipeline_runs.
         tests: [unique, not_null]
+      - name: logical_date
+        description: Calendar date the run was intended to ingest data for.
+      - name: started_at
+        description: Timestamp when the ingestion run began.
+      - name: completed_at
+        description: Timestamp when the run finished; null on crash.
+      - name: status
+        description: "Lowercase outcome: success, blocked, partial, or failed."
+      - name: source
+        description: Data source identifier (e.g. nyc_taxi_tlc).
+      - name: rows_loaded
+        description: Rows written to raw.taxi_trips.
+      - name: rows_quarantined
+        description: Rows diverted to raw.taxi_trips_quarantine due to row-level check failures.
+      - name: rows_skipped
+        description: Rows dropped before quality evaluation due to parse or schema errors.
+      - name: duration_seconds
+        description: Run wall-clock time in seconds.
+      - name: error_message
+        description: Python exception or orchestrator error message; null on clean runs.
+      - name: checks_run
+        description: Total Great Expectations checks executed in this run.
+      - name: checks_failed
+        description: Number of checks that did not pass.
       - name: blocking_failures
-        description: Failed checks whose severity (from quality_check_catalog) is blocking.
+        description: >
+          Count of failed checks whose severity = blocking (from quality_check_catalog).
+          Any value greater than 0 means the entire load was halted. Coalesced to 0
+          for runs that have no quality_results rows.
         tests: [not_null]
+      - name: worst_row_check_failure_rate
+        description: >
+          Maximum failure rate across all row-level checks in this run
+          (rows_failed / rows_checked). Null if no row-level checks ran or all
+          row counts are zero. Used to rank run quality and calibrate alert thresholds.
+      - name: quarantine_rate
+        description: >
+          rows_quarantined / (rows_loaded + rows_quarantined). Null when both counts
+          are zero (e.g. blocked runs where no rows were written). Computed here rather
+          than in the source table so the denominator is always consistent.
